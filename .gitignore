@@ -1,0 +1,21 @@
+# MIMIC-derived data and model outputs must never be committed
+data/
+outputs/
+*.parquet
+*.npy
+*.safetensors
+
+# Environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+runs/
+
+# Claude Code project instructions and agents (kept local)
+claude.md
+CLAUDE.md
+.claude/

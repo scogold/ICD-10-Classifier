@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icd10"
+version = "0.1.0"
+description = "Fine-tune BioClinical ModernBERT to predict ICD-10 codes from MIMIC-IV discharge summaries."
+requires-python = ">=3.12"
+# torch must come from the CUDA 12.8 wheel index for RTX 50-series (sm_120) GPUs; see README.
+dependencies = [
+    "torch==2.11.0",
+    "transformers==5.19.0",
+    "tokenizers==0.23.2",
+    "datasets==5.1.0",
+    "accelerate==1.15.0",
+    "scikit-learn==1.9.1",
+    "scipy==1.18.1",
+    "numpy==2.5.3",
+    "pandas==3.0.6",
+    "pyarrow==25.0.1",
+    "PyYAML==6.0.3",
+    "tensorboard==2.21.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
