@@ -1,7 +1,7 @@
 """Generate synthetic MIMIC-IV files (discharge notes + diagnoses) for tests.
 
 Everything here is made up from public ICD code lists and public schema docs.
-No real MIMIC data is read. Output layout mirrors MIMIC so MIMIC_DIR can point at it:
+No real MIMIC data is read. Output layout mirrors MIMIC so paths.mimic_dir can point at it:
 
     <out>/note/discharge.csv
     <out>/hosp/diagnoses_icd.csv
@@ -429,7 +429,7 @@ def write_readme(path: Path, seed: int, n_patients: int, data: dict) -> None:
 This data is **synthetic**. It is generated from public ICD code lists and the public
 MIMIC-IV schema docs, and contains no real patient data. It is safe to print and commit.
 
-Same layout as MIMIC-IV, so `MIMIC_DIR` can point at this directory:
+Same layout as MIMIC-IV, so `paths.mimic_dir` can point at this directory:
 `note/discharge.csv`, `hosp/diagnoses_icd.csv`, `hosp/d_icd_diagnoses.csv`.
 Real MIMIC ships these as `.csv.gz`; the project loader accepts either.
 

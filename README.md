@@ -10,23 +10,22 @@ MIMIC data, derived files and checkpoints never leave `data/` and `outputs/`, an
 python -m venv .venv
 .venv\Scripts\python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128  # RTX 50-series needs cu128
 .venv\Scripts\python -m pip install -e ".[dev]"
-$env:MIMIC_DIR = "D:\path\to\mimic-iv"   # folder containing note\ and hosp\
 ```
+
+Then set `paths.mimic_dir` in `src/icd10/config.py` to the MIMIC-IV folder (the one containing
+`note\` and `hosp\`).
 
 ## Workflow
 
 ```powershell
 $py = ".venv\Scripts\python"
-& $py scripts/build_dataset.py  top50_base   # notes + ICD-10 codes -> data/processed
-& $py scripts/compute_splits.py top50_base   # patient-level splits -> data/splits
 & $py -m icd10.train top50_base
 & $py -m icd10.evaluate outputs/top50-base/<timestamp>
 tensorboard --logdir outputs
 ```
 
-`train.py` builds the dataset, splits and tokenized cache if they don't exist yet, so the first
-two scripts are optional. To use the Edin et al. (2023) split, set `data.split_file` to their
-`mimiciv_icd10_split.feather`.
+`train.py` builds the dataset (`data/processed`), patient-level splits (`data/splits`) and
+tokenized cache if they don't exist yet.
 
 ## Changing hyperparameters
 

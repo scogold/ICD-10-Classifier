@@ -3,7 +3,7 @@
 This data is **synthetic**. It is generated from public ICD code lists and the public
 MIMIC-IV schema docs, and contains no real patient data. It is safe to print and commit.
 
-Same layout as MIMIC-IV, so `MIMIC_DIR` can point at this directory:
+Same layout as MIMIC-IV, so `paths.mimic_dir` can point at this directory:
 `note/discharge.csv`, `hosp/diagnoses_icd.csv`, `hosp/d_icd_diagnoses.csv`.
 Real MIMIC ships these as `.csv.gz`; the project loader accepts either.
 

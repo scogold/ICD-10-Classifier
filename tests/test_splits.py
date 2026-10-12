@@ -1,14 +1,6 @@
 import pandas as pd
-import pytest
 
-from icd10.data.splits import (
-    SPLITS,
-    check_no_subject_leakage,
-    compute_subject_splits,
-    load_edin_splits,
-    load_or_create_splits,
-    split_file_path,
-)
+from icd10.data.splits import SPLITS, compute_subject_splits
 
 
 def test_no_patient_in_two_splits(synthetic_dataset):
@@ -17,7 +9,6 @@ def test_no_patient_in_two_splits(synthetic_dataset):
     assert not subjects["train"] & subjects["val"]
     assert not subjects["train"] & subjects["test"]
     assert not subjects["val"] & subjects["test"]
-    check_no_subject_leakage(splits)
     assert len(splits) == len(synthetic_dataset)  # every admission is assigned
 
 
@@ -40,27 +31,3 @@ def test_split_fractions_are_by_patient():
     patients = splits.groupby("split")["subject_id"].nunique()
     assert patients.to_dict() == {"test": 20, "train": 70, "val": 10}
 
-
-def test_leakage_check_raises_on_shared_patient():
-    splits = pd.DataFrame({"hadm_id": [1, 2, 3], "subject_id": [10, 10, 11], "split": ["train", "test", "val"]})
-    with pytest.raises(ValueError, match="1 patients"):
-        check_no_subject_leakage(splits)
-
-
-def test_load_edin_splits(tmp_path):
-    df = pd.DataFrame({"subject_id": [10, 10, 11, 12], "hadm_id": [1, 2, 3, 4]})
-    path = tmp_path / "split.csv"
-    pd.DataFrame({"_id": [1, 2, 3, 99], "split": ["train", "train", "valid", "test"]}).to_csv(path, index=False)
-    splits = load_edin_splits(path, df).set_index("hadm_id")
-    assert splits["split"].to_dict() == {1: "train", 2: "train", 3: "val"}
-    assert splits["subject_id"].to_dict() == {1: 10, 2: 10, 3: 11}
-
-
-def test_a_saved_split_file_with_leakage_is_rejected(tmp_path):
-    config = {"seed": 0, "paths": {"data_dir": str(tmp_path)}, "data": {"split_file": None}}
-    dataset_path = tmp_path / "processed" / "mimiciv_icd10.parquet"
-    path = split_file_path(config, dataset_path)
-    path.parent.mkdir(parents=True)
-    pd.DataFrame({"hadm_id": [1, 2], "subject_id": [10, 10], "split": ["train", "test"]}).to_csv(path, index=False)
-    with pytest.raises(ValueError, match="1 patients"):
-        load_or_create_splits(config, pd.DataFrame(), dataset_path)

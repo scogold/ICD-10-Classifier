@@ -18,15 +18,14 @@ BASE: dict[str, Any] = {
     "run_name": "base",  # outputs go to <output_dir>/<run_name>/<timestamp>/
     "seed": 42,  # seeds random, numpy, torch, the Trainer and the patient-level split
     "paths": {
-        "mimic_dir": None,  # raw MIMIC-IV root (contains note/ and hosp/); None = use the MIMIC_DIR env var
+        "mimic_dir": None,  # raw MIMIC-IV root (contains note/ and hosp/); set this before training on MIMIC
         "data_dir": "data",  # processed data, splits, tokenized caches (gitignored)
         "output_dir": "outputs",  # checkpoints, logits, metrics, TensorBoard logs (gitignored)
     },
     "data": {
         "label_setting": "top50",  # top50 = 50 most frequent train codes; full = every code seen in train
         "max_length": 4096,  # tokens per note (model max 8192)
-        "split_file": None,  # path to Edin et al. (2023) mimiciv_icd10_split.feather; None = compute splits
-        "val_fraction": 0.1,  # val_fraction and test_fraction apply only when computing splits
+        "val_fraction": 0.1,  # fractions of patients, not admissions
         "test_fraction": 0.1,
     },
     "model": {

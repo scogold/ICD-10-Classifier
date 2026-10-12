@@ -37,7 +37,6 @@ from transformers import (
 )
 
 from icd10.config import EXPERIMENTS, REPO_ROOT, get_config, resolve_path
-from icd10.data.dataset import resolve_mimic_dir
 from icd10.data.labels import multi_hot
 from icd10.data.prepare import MultiLabelCollator, prepare_data
 from icd10.evaluate import evaluate_run
@@ -200,7 +199,8 @@ def format_example_prediction(
 
 def show_example_prediction(config: dict[str, Any], example: str, run_dir: Path) -> None:
     """Print the example only for synthetic data: real MIMIC note text must never reach the terminal."""
-    if resolve_mimic_dir(config["paths"]["mimic_dir"]) == SYNTHETIC_MIMIC_DIR:
+    mimic_dir = config["paths"]["mimic_dir"]
+    if mimic_dir is not None and resolve_path(mimic_dir) == SYNTHETIC_MIMIC_DIR:
         print(example)
         return
     path = run_dir / "example_prediction.txt"
@@ -238,14 +238,13 @@ def train(config: dict[str, Any]) -> Path:
     tokenizer = AutoTokenizer.from_pretrained(config["model"]["checkpoint"])
     data = prepare_data(config, tokenizer)
     num_labels = len(data.vocab)
-    train_counts = [data.train_counts[code] for code in data.vocab]
     write_json(
         run_dir / "label_vocab.json",
-        {"label_setting": config["data"]["label_setting"], "codes": data.vocab, "train_counts": train_counts},
+        {"label_setting": config["data"]["label_setting"], "codes": data.vocab, "train_counts": data.train_counts},
     )
     print(f"Labels: {num_labels}; admissions per split: { {s: len(d) for s, d in data.datasets.items()} }")
 
-    loss_fn = make_loss_fn(config["loss"], np.asarray(train_counts), len(data.datasets["train"]))
+    loss_fn = make_loss_fn(config["loss"], np.asarray(data.train_counts), len(data.datasets["train"]))
     model = build_model(config, data.vocab, precision)
 
     os.environ["TENSORBOARD_LOGGING_DIR"] = str(run_dir / "tensorboard")
