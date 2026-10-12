@@ -4,7 +4,6 @@ Splits are by subject_id so that no patient appears in more than one split. A sp
 as a CSV of IDs only (hadm_id, subject_id, split) under data_dir/splits.
 """
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -29,13 +28,8 @@ def compute_subject_splits(
     return df[["hadm_id", "subject_id"]].assign(split=df["subject_id"].map(split_of_subject))
 
 
-def split_file_path(config: dict[str, Any], dataset_path: Path) -> Path:
-    name = f"{dataset_path.stem}_subject_seed{config['seed']}.csv"
-    return resolve_path(config["paths"]["data_dir"]) / "splits" / name
-
-
-def load_or_create_splits(config: dict[str, Any], df: pd.DataFrame, dataset_path: Path) -> pd.DataFrame:
-    path = split_file_path(config, dataset_path)
+def load_or_create_splits(config: dict[str, Any], df: pd.DataFrame) -> pd.DataFrame:
+    path = resolve_path(config["paths"]["data_dir"]) / "splits" / f"subject_seed{config['seed']}.csv"
     if path.exists():
         return pd.read_csv(path)
     data = config["data"]

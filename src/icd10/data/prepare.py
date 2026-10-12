@@ -1,5 +1,6 @@
 """Glue that turns a config into ready-to-train datasets: build, split, label, tokenize."""
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,28 +11,27 @@ from datasets import Dataset, load_from_disk
 from transformers import PreTrainedTokenizerBase
 
 from icd10.config import resolve_path
-from icd10.data.dataset import load_dataset, processed_dataset_path
+from icd10.data.dataset import load_dataset
 from icd10.data.labels import build_label_vocab, codes_to_indices, count_codes, multi_hot
 from icd10.data.splits import SPLITS, load_or_create_splits
 
 
-def tokenized_cache_dir(data_dir: Path, dataset_path: Path, tokenizer_name: str, max_length: int) -> Path:
-    """Cache key: processed dataset version, tokenizer name and max_length.
-
-    Only token IDs are cached; labels are attached later because they depend on the label
-    setting and split.
-    """
-    # Size and mtime change whenever the processed file is rebuilt, so stale token IDs are never reused.
-    stat = dataset_path.stat()
-    version = f"{stat.st_size}-{stat.st_mtime_ns}"
-    safe_tokenizer = tokenizer_name.replace("/", "__").replace("\\", "__")
-    return data_dir / "tokenized" / f"{dataset_path.stem}-{version}" / f"{safe_tokenizer}_len{max_length}"
+def text_fingerprint(df: pd.DataFrame) -> str:
+    """Short hash of hadm_id + text: changes whenever the text that gets tokenized changes."""
+    row_hashes = pd.util.hash_pandas_object(df[["hadm_id", "text"]], index=False).to_numpy()
+    return hashlib.sha256(row_hashes.tobytes()).hexdigest()[:16]
 
 
 def load_or_tokenize(
-    df: pd.DataFrame, tokenizer: PreTrainedTokenizerBase, max_length: int, cache_dir: Path
+    df: pd.DataFrame, tokenizer: PreTrainedTokenizerBase, max_length: int, data_dir: Path
 ) -> Dataset:
-    """Return a Dataset with hadm_id, input_ids, attention_mask and length (tokens kept)."""
+    """Return a Dataset with hadm_id, input_ids, attention_mask and length (tokens kept).
+
+    Cached under data_dir/tokenized/<text fingerprint>/<tokenizer>_len<max_length>. Only token IDs
+    are cached; labels are attached later because they depend on the label setting and split.
+    """
+    safe_tokenizer = tokenizer.name_or_path.replace("/", "__").replace("\\", "__").replace(":", "")
+    cache_dir = data_dir / "tokenized" / text_fingerprint(df) / f"{safe_tokenizer}_len{max_length}"
     if cache_dir.exists():
         return load_from_disk(str(cache_dir))
 
@@ -56,15 +56,13 @@ class PreparedData:
 
 def prepare_data(config: dict[str, Any], tokenizer: PreTrainedTokenizerBase) -> PreparedData:
     df = load_dataset(config)
-    dataset_path = processed_dataset_path(config)
     # Tokenize the whole processed dataset so one cache serves every split and label setting.
     max_length = config["data"]["max_length"]
     data_dir = resolve_path(config["paths"]["data_dir"])
-    cache_dir = tokenized_cache_dir(data_dir, dataset_path, config["model"]["checkpoint"], max_length)
-    tokenized = load_or_tokenize(df, tokenizer, max_length, cache_dir)
+    tokenized = load_or_tokenize(df, tokenizer, max_length, data_dir)
     row_of_hadm = {hadm_id: i for i, hadm_id in enumerate(tokenized["hadm_id"])}
 
-    splits = load_or_create_splits(config, df, dataset_path)
+    splits = load_or_create_splits(config, df)
     df = df.merge(splits[["hadm_id", "split"]], on="hadm_id", how="inner")
 
     train_counts = count_codes(df.loc[df["split"] == "train", "icd_codes"])

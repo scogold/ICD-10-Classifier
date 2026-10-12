@@ -30,7 +30,7 @@ tokenized cache if they don't exist yet.
 ## Changing hyperparameters
 
 All training settings live in `src/icd10/config.py`. `BASE` holds every setting with comments,
-grouped into paths, data, model, train and loss. Each experiment (`TOP50_BASE`, `FULL_BASE`,
+grouped into paths, data, model and train. Each experiment (`TOP50_BASE`, `FULL_BASE`,
 `TOP50_LARGE`, `SMOKE`) lists only what it changes from `BASE`. Edit the values there and run the
 experiment by name. To add an experiment, define it with `deep_merge(BASE, {...})` and add it to
 `EXPERIMENTS`.

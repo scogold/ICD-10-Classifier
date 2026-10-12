@@ -41,26 +41,8 @@ from icd10.data.labels import multi_hot
 from icd10.data.prepare import MultiLabelCollator, prepare_data
 from icd10.evaluate import evaluate_run
 from icd10.metrics import compute_metrics, sigmoid, tune_global_threshold
-from icd10.losses import LossFn, make_loss_fn
 
 SYNTHETIC_MIMIC_DIR = REPO_ROOT / "tests" / "fixtures" / "synthetic_mimic"
-
-
-class MultiLabelTrainer(Trainer):
-    """Trainer with a configurable multi-label loss instead of the model's built-in BCE."""
-
-    # Our loss is a per-batch mean, so the Trainer should divide it by the accumulation steps.
-    loss_is_scaled_for_ga = False
-
-    def __init__(self, *args, loss_fn: LossFn, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.loss_fn = loss_fn
-
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        labels = inputs.pop("labels")
-        outputs = model(**inputs)
-        loss = self.loss_fn(outputs.logits.float(), labels.float())
-        return (loss, outputs) if return_outputs else loss
 
 
 TORCH_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
@@ -244,11 +226,10 @@ def train(config: dict[str, Any]) -> Path:
     )
     print(f"Labels: {num_labels}; admissions per split: { {s: len(d) for s, d in data.datasets.items()} }")
 
-    loss_fn = make_loss_fn(config["loss"], np.asarray(data.train_counts), len(data.datasets["train"]))
     model = build_model(config, data.vocab, precision)
 
     os.environ["TENSORBOARD_LOGGING_DIR"] = str(run_dir / "tensorboard")
-    trainer = MultiLabelTrainer(
+    trainer = Trainer(
         model=model,
         args=build_training_args(config, run_dir, precision),
         train_dataset=data.datasets["train"],
@@ -256,8 +237,10 @@ def train(config: dict[str, Any]) -> Path:
         data_collator=MultiLabelCollator(tokenizer, num_labels),
         processing_class=tokenizer,
         compute_metrics=eval_metrics,
-        loss_fn=loss_fn,
     )
+    # The model's built-in BCE is a per-batch mean and ignores num_items_in_batch, but its forward
+    # takes **kwargs, so the Trainer would wrongly assume it's already scaled for gradient accumulation.
+    trainer.loss_is_scaled_for_ga = False
     #trainer.train(resume_from_checkpoint="outputs/top50-large/20261010-111505/checkpoints/checkpoint-11530")
     trainer.train()
     trainer.save_model(str(run_dir / "model"))

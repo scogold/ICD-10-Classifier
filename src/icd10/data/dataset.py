@@ -55,16 +55,12 @@ def normalize_whitespace(text: str) -> str:
     return " ".join(text.split())
 
 
-def processed_dataset_path(config: dict[str, Any]) -> Path:
-    return resolve_path(config["paths"]["data_dir"]) / "processed" / "mimiciv_icd10.parquet"
-
-
 def load_dataset(config: dict[str, Any]) -> pd.DataFrame:
     """Join notes to ICD-10 codes on hadm_id; drop admissions without a note or without codes.
 
     The result is cached as parquet under data_dir; later calls read the cache instead of MIMIC.
     """
-    path = processed_dataset_path(config)
+    path = resolve_path(config["paths"]["data_dir"]) / "processed" / "mimiciv_icd10.parquet"
     if path.exists():
         df = pd.read_parquet(path)
         df["icd_codes"] = df["icd_codes"].map(list)  # parquet returns numpy arrays

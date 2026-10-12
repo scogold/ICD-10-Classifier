@@ -1,7 +1,7 @@
 import pandas as pd
 
 from icd10.data.dataset import load_dataset, normalize_whitespace
-from icd10.data.prepare import tokenized_cache_dir
+from icd10.data.prepare import load_or_tokenize
 from conftest import SYNTHETIC_MIMIC_DIR
 
 
@@ -52,13 +52,29 @@ def test_several_notes_are_joined_in_note_seq_order_and_codes_stay_strings(tmp_p
     assert df["icd_codes"].iloc[0] == ["I10", "E119"]
 
 
-def test_rebuilt_dataset_gets_a_new_tokenized_cache(tmp_path):
-    dataset_path = tmp_path / "processed" / "mimiciv_icd10.parquet"
-    dataset_path.parent.mkdir()
-    pd.DataFrame({"hadm_id": [1], "text": ["old"]}).to_parquet(dataset_path)
-    old = tokenized_cache_dir(tmp_path, dataset_path, "org/model", 512)
-    pd.DataFrame({"hadm_id": [1], "text": ["rebuilt text"]}).to_parquet(dataset_path)
-    new = tokenized_cache_dir(tmp_path, dataset_path, "org/model", 512)
-    assert old != new
-    assert new.name == "org__model_len512"
-    assert tokenized_cache_dir(tmp_path, dataset_path, "org/model", 1024) != new
+class FakeTokenizer:
+    """One token per word; counts calls so the test can tell a cache hit from re-tokenizing."""
+
+    name_or_path = "org/model"
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, texts, truncation, max_length):
+        self.calls += 1
+        input_ids = [list(range(len(text.split())))[:max_length] for text in texts]
+        return {"input_ids": input_ids, "attention_mask": [[1] * len(ids) for ids in input_ids]}
+
+
+def test_tokenized_cache_is_reused_only_for_the_same_text_and_max_length(tmp_path):
+    tokenizer = FakeTokenizer()
+    old_df = pd.DataFrame({"hadm_id": [1], "text": ["old text"]})
+    first = load_or_tokenize(old_df, tokenizer, 512, tmp_path)
+    assert first["length"] == [2]
+    load_or_tokenize(old_df.copy(), tokenizer, 512, tmp_path)
+    assert tokenizer.calls == 1  # second call was a cache hit
+    load_or_tokenize(pd.DataFrame({"hadm_id": [1], "text": ["rebuilt text here"]}), tokenizer, 512, tmp_path)
+    load_or_tokenize(old_df, tokenizer, 1, tmp_path)
+    assert tokenizer.calls == 3
+    cache_dirs = sorted(p.name for p in (tmp_path / "tokenized").glob("*/*"))
+    assert cache_dirs == ["org__model_len1", "org__model_len512", "org__model_len512"]

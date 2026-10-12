@@ -60,11 +60,6 @@ BASE: dict[str, Any] = {
         "metric_for_best_model": "micro_f1_tuned",  # val micro F1 at the best global threshold; or micro_auc, ...
         "logging_steps": 50,
     },
-    "loss": {
-        "type": "bce",  # bce | pos_weight_bce | focal
-        "pos_weight_max": 50.0,  # pos_weight_bce: cap on negatives/positives per label
-        "focal_gamma": 2.0,  # focal: focusing parameter
-    },
 }
 
 
@@ -86,7 +81,6 @@ FULL_BASE = deep_merge(BASE, {
     "run_name": "full-base",
     "data": {"label_setting": "full"},
     "train": {"epochs": 1},  # rare codes need more passes
-    "loss": {"type": "pos_weight_bce"},  # helps the long tail; compare against bce on val
 })
 
 # Top-50 codes, BioClinical ModernBERT large.
