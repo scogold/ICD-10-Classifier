@@ -1,6 +1,6 @@
 import pandas as pd
 
-from icd10.data.dataset import build_dataset, normalize_whitespace
+from icd10.data.dataset import load_dataset, normalize_whitespace
 from icd10.data.prepare import tokenized_cache_dir
 from conftest import SYNTHETIC_MIMIC_DIR
 
@@ -46,7 +46,7 @@ def test_several_notes_are_joined_in_note_seq_order_and_codes_stay_strings(tmp_p
         "subject_id": [1, 1, 1, 2], "hadm_id": [10, 10, 10, 20], "seq_num": [2, 1, 3, 1],
         "icd_code": ["E119", "I10", "4019", "0389"], "icd_version": [10, 10, 9, 9],
     }).to_csv(tmp_path / "hosp" / "diagnoses_icd.csv.gz", index=False)
-    df = build_dataset(tmp_path)
+    df = load_dataset({"paths": {"mimic_dir": tmp_path, "data_dir": tmp_path / "data"}})
     assert df["hadm_id"].tolist() == [10]  # admission 20 only has ICD-9 codes
     assert df["text"].iloc[0] == "first part second part"
     assert df["icd_codes"].iloc[0] == ["I10", "E119"]

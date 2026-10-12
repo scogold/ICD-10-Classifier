@@ -55,29 +55,29 @@ def normalize_whitespace(text: str) -> str:
     return " ".join(text.split())
 
 
-def build_dataset(mimic_dir: Path) -> pd.DataFrame:
-    """Join notes to ICD-10 codes on hadm_id; drop admissions without a note or without codes."""
-    notes = load_notes(mimic_dir)
-    codes = load_icd10_codes(mimic_dir)
-    df = notes.merge(codes, on="hadm_id", how="inner")  # keeps the notes' hadm_id order
-    df["text"] = df["text"].map(normalize_whitespace)
-    return df
-
-
 def processed_dataset_path(config: dict[str, Any]) -> Path:
     return resolve_path(config["paths"]["data_dir"]) / "processed" / "mimiciv_icd10.parquet"
 
 
-def load_or_build_dataset(config: dict[str, Any]) -> pd.DataFrame:
+def load_dataset(config: dict[str, Any]) -> pd.DataFrame:
+    """Join notes to ICD-10 codes on hadm_id; drop admissions without a note or without codes.
+
+    The result is cached as parquet under data_dir; later calls read the cache instead of MIMIC.
+    """
     path = processed_dataset_path(config)
     if path.exists():
         df = pd.read_parquet(path)
         df["icd_codes"] = df["icd_codes"].map(list)  # parquet returns numpy arrays
         return df
-    mimic_dir = config["paths"]["mimic_dir"]
-    if mimic_dir is None:
+
+    if config["paths"]["mimic_dir"] is None:
         raise ValueError("Set paths.mimic_dir in src/icd10/config.py to the MIMIC-IV folder (contains note/ and hosp/).")
-    df = build_dataset(resolve_path(mimic_dir))
+    mimic_dir = resolve_path(config["paths"]["mimic_dir"])
+    notes = load_notes(mimic_dir)
+    codes = load_icd10_codes(mimic_dir)
+    df = notes.merge(codes, on="hadm_id", how="inner")  # keeps the notes' hadm_id order
+    df["text"] = df["text"].map(normalize_whitespace)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
     return df

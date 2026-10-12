@@ -10,7 +10,7 @@ from datasets import Dataset, load_from_disk
 from transformers import PreTrainedTokenizerBase
 
 from icd10.config import resolve_path
-from icd10.data.dataset import load_or_build_dataset, processed_dataset_path
+from icd10.data.dataset import load_dataset, processed_dataset_path
 from icd10.data.labels import build_label_vocab, codes_to_indices, count_codes, multi_hot
 from icd10.data.splits import SPLITS, load_or_create_splits
 
@@ -55,7 +55,7 @@ class PreparedData:
 
 
 def prepare_data(config: dict[str, Any], tokenizer: PreTrainedTokenizerBase) -> PreparedData:
-    df = load_or_build_dataset(config)
+    df = load_dataset(config)
     dataset_path = processed_dataset_path(config)
     # Tokenize the whole processed dataset so one cache serves every split and label setting.
     max_length = config["data"]["max_length"]
