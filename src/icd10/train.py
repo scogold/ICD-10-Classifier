@@ -20,15 +20,17 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import peft
 import torch
 import transformers
 import yaml
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 from torch.utils.tensorboard import SummaryWriter
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    BitsAndBytesConfig,
     EvalPrediction,
-    PreTrainedModel,
     Trainer,
     TrainingArguments,
     set_seed,
@@ -39,7 +41,7 @@ from icd10.data.dataset import resolve_mimic_dir
 from icd10.data.labels import multi_hot
 from icd10.data.prepare import MultiLabelCollator, prepare_data
 from icd10.evaluate import evaluate_run
-from icd10.metrics import compute_metrics, micro_f1, sigmoid, tune_global_threshold
+from icd10.metrics import compute_metrics, sigmoid, tune_global_threshold
 from icd10.losses import LossFn, make_loss_fn
 
 SYNTHETIC_MIMIC_DIR = REPO_ROOT / "tests" / "fixtures" / "synthetic_mimic"
@@ -62,16 +64,57 @@ class MultiLabelTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def build_model(model_config: dict[str, Any], vocab: list[str]) -> PreTrainedModel:
-    """Pretrained encoder plus a new linear head with one sigmoid output per ICD-10 code."""
-    return AutoModelForSequenceClassification.from_pretrained(
-        model_config["checkpoint"],
-        num_labels=len(vocab),
-        problem_type="multi_label_classification",
-        attn_implementation="sdpa",  # flash_attention_2 is hard to install on Windows
-        id2label=dict(enumerate(vocab)),
-        label2id={code: i for i, code in enumerate(vocab)},
+TORCH_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
+
+
+def build_model(config: dict[str, Any], vocab: list[str], precision: str) -> torch.nn.Module:
+    """Pretrained encoder plus a new linear head with one sigmoid output per ICD-10 code.
+
+    With QLoRA the encoder is loaded in 4-bit and frozen; only LoRA adapters and the
+    full-precision head layers are trained.
+    """
+    model_kwargs = {
+        "num_labels": len(vocab),
+        "problem_type": "multi_label_classification",
+        "attn_implementation": "sdpa",  # flash_attention_2 is hard to install on Windows
+        "id2label": dict(enumerate(vocab)),
+        "label2id": {code: i for i, code in enumerate(vocab)},
+    }
+    checkpoint = config["model"]["checkpoint"]
+    qlora = config["qlora"]
+    if not qlora["enabled"]:
+        return AutoModelForSequenceClassification.from_pretrained(checkpoint, **model_kwargs)
+    if not torch.cuda.is_available():
+        raise RuntimeError("QLoRA needs a CUDA GPU (bitsandbytes 4-bit); set qlora.enabled to False")
+
+    compute_dtype = TORCH_DTYPES[precision]
+    quantization = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type=qlora["quant_type"],
+        bnb_4bit_use_double_quant=qlora["double_quant"],
+        bnb_4bit_compute_dtype=compute_dtype,
+        # 4-bit weights can't be trained, so the layers we train fully must stay unquantized.
+        llm_int8_skip_modules=qlora["full_modules"],
     )
+    model = AutoModelForSequenceClassification.from_pretrained(
+        checkpoint, quantization_config=quantization, dtype=compute_dtype, **model_kwargs
+    )
+    model = prepare_model_for_kbit_training(
+        model,
+        use_gradient_checkpointing=config["train"]["gradient_checkpointing"],
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+    )
+    lora = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        r=qlora["r"],
+        lora_alpha=qlora["alpha"],
+        lora_dropout=qlora["dropout"],
+        target_modules=qlora["target_modules"],
+        modules_to_save=qlora["full_modules"],
+    )
+    model = get_peft_model(model, lora)
+    model.print_trainable_parameters()
+    return model
 
 
 def resolve_precision(precision: str) -> str:
@@ -94,10 +137,8 @@ def build_training_args(config: dict[str, Any], run_dir: Path, precision: str) -
         per_device_eval_batch_size=train["eval_batch_size"],
         gradient_accumulation_steps=train["grad_accum"],
         num_train_epochs=train["epochs"],
-        max_steps=train["max_steps"],
         warmup_steps=train["warmup_steps"],
         weight_decay=train["weight_decay"],
-        lr_scheduler_type=train["scheduler"],
         bf16=precision == "bf16",
         fp16=precision == "fp16",
         gradient_checkpointing=train["gradient_checkpointing"],
@@ -121,7 +162,8 @@ def eval_metrics(prediction: EvalPrediction) -> dict[str, float]:
     probs = sigmoid(logits)
     labels = prediction.label_ids.astype(np.uint8)
     results = compute_metrics(labels, probs, threshold=0.5)
-    results["micro_f1_tuned"] = micro_f1(labels, probs >= tune_global_threshold(labels, probs))
+    tuned = compute_metrics(labels, probs, threshold=tune_global_threshold(labels, probs), ks=())
+    results["micro_f1_tuned"] = tuned["micro_f1"]
     return results
 
 
@@ -172,6 +214,7 @@ def run_metadata(config: dict[str, Any], precision: str) -> dict[str, Any]:
         "precision": precision,
         "torch": torch.__version__,
         "transformers": transformers.__version__,
+        "peft": peft.__version__,
         "cuda": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "python": platform.python_version(),
@@ -203,7 +246,7 @@ def train(config: dict[str, Any]) -> Path:
     print(f"Labels: {num_labels}; admissions per split: { {s: len(d) for s, d in data.datasets.items()} }")
 
     loss_fn = make_loss_fn(config["loss"], np.asarray(train_counts), len(data.datasets["train"]))
-    model = build_model(config["model"], data.vocab)
+    model = build_model(config, data.vocab, precision)
 
     os.environ["TENSORBOARD_LOGGING_DIR"] = str(run_dir / "tensorboard")
     trainer = MultiLabelTrainer(
@@ -216,6 +259,7 @@ def train(config: dict[str, Any]) -> Path:
         compute_metrics=eval_metrics,
         loss_fn=loss_fn,
     )
+    #trainer.train(resume_from_checkpoint="outputs/top50-large/20261010-111505/checkpoints/checkpoint-11530")
     trainer.train()
     trainer.save_model(str(run_dir / "model"))
 

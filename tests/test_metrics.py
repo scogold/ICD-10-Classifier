@@ -1,16 +1,14 @@
+import json
+
 import numpy as np
 import pytest
 from sklearn.metrics import f1_score, roc_auc_score
 
-from icd10.evaluate import bucket_metrics
+from icd10.evaluate import evaluate_run
 from icd10.metrics import (
     sigmoid,
     compute_metrics,
     frequency_buckets,
-    macro_auc,
-    macro_f1,
-    micro_auc,
-    micro_f1,
     precision_at_k,
     tune_global_threshold,
     tune_per_label_thresholds,
@@ -26,26 +24,34 @@ def random_problem():
     return y, probs
 
 
+def metrics(y, probs, threshold=0.5):
+    """compute_metrics without precision@k. To score fixed 0/1 predictions, pass them as probs."""
+    return compute_metrics(np.asarray(y), np.asarray(probs, dtype=float), threshold, ks=())
+
+
 def test_f1_matches_sklearn(random_problem):
     y, probs = random_problem
     pred = probs >= 0.5
-    assert micro_f1(y, pred) == pytest.approx(f1_score(y, pred, average="micro", zero_division=0))
-    assert macro_f1(y, pred) == pytest.approx(f1_score(y, pred, average="macro", zero_division=0))
+    results = metrics(y, probs)
+    assert results["micro_f1"] == pytest.approx(f1_score(y, pred, average="micro", zero_division=0))
+    assert results["macro_f1"] == pytest.approx(f1_score(y, pred, average="macro", zero_division=0))
 
 
 def test_f1_hand_computed():
     y = np.array([[1, 0, 1], [0, 1, 0]])
     pred = np.array([[1, 1, 0], [0, 1, 0]])
     # tp=2, fp=1, fn=1 -> micro F1 = 4/6; per-label F1 = 1, 2/3, 0
-    assert micro_f1(y, pred) == pytest.approx(2 / 3)
-    assert macro_f1(y, pred) == pytest.approx((1 + 2 / 3 + 0) / 3)
+    results = metrics(y, pred)
+    assert results["micro_f1"] == pytest.approx(2 / 3)
+    assert results["macro_f1"] == pytest.approx((1 + 2 / 3 + 0) / 3)
 
 
 def test_auc_matches_sklearn_and_skips_labels_without_positives(random_problem):
     y, probs = random_problem
-    assert micro_auc(y, probs) == pytest.approx(roc_auc_score(y.ravel(), probs.ravel()))
+    results = metrics(y, probs)
+    assert results["micro_auc"] == pytest.approx(roc_auc_score(y.ravel(), probs.ravel()))
     expected_macro = np.mean([roc_auc_score(y[:, j], probs[:, j]) for j in range(11)])
-    assert macro_auc(y, probs) == pytest.approx(expected_macro)
+    assert results["macro_auc"] == pytest.approx(expected_macro)
 
 
 def test_precision_at_k_hand_computed():
@@ -62,7 +68,7 @@ def test_global_threshold_separates_separable_scores():
     probs = np.where(y == 1, 0.35, 0.25)
     threshold = tune_global_threshold(y, probs)
     assert 0.25 < threshold <= 0.35
-    assert micro_f1(y, probs >= threshold) == 1.0
+    assert metrics(y, probs, threshold)["micro_f1"] == 1.0
 
 
 def test_per_label_thresholds_differ_per_label_and_fall_back():
@@ -82,7 +88,7 @@ def test_compute_metrics_reports_all_metrics(random_problem):
 
 
 def test_frequency_buckets():
-    buckets = frequency_buckets(np.array([500, 50, 5, 100, 10, 9]), [10, 100])
+    buckets = frequency_buckets(np.array([500, 50, 5, 100, 10, 9]), (10, 100))
     assert buckets["head"].tolist() == [0, 3]
     assert buckets["medium"].tolist() == [1, 4]
     assert buckets["tail"].tolist() == [2, 5]
@@ -90,7 +96,7 @@ def test_frequency_buckets():
 
 def _brute_force_thresholds(y, probs, grid):
     """Reference: threshold the whole matrix at every grid value."""
-    micro = [micro_f1(y, probs >= t) for t in grid]
+    micro = [metrics(y, probs, t)["micro_f1"] for t in grid]
     per_label = np.stack([[f1_score(y[:, j], probs[:, j] >= t, zero_division=0) for j in range(y.shape[1])] for t in grid])
     return grid[int(np.argmax(micro))], grid[np.argmax(per_label, axis=0)]
 
@@ -113,9 +119,11 @@ def test_auc_handles_ties_and_undefined_labels():
     y[:, 3] = 0  # no positives
     y[:, 4] = 1  # no negatives
     probs = np.round(rng.random(y.shape), 1)  # many ties
-    assert micro_auc(y, probs) == pytest.approx(roc_auc_score(y.ravel(), probs.ravel()))
-    assert macro_auc(y, probs) == pytest.approx(np.mean([roc_auc_score(y[:, j], probs[:, j]) for j in range(3)]))
-    assert np.isnan(macro_auc(np.zeros((4, 2)), rng.random((4, 2))))
+    results = metrics(y, probs)
+    assert results["micro_auc"] == pytest.approx(roc_auc_score(y.ravel(), probs.ravel()))
+    assert results["macro_auc"] == pytest.approx(np.mean([roc_auc_score(y[:, j], probs[:, j]) for j in range(3)]))
+    no_positives = metrics(np.zeros((4, 2)), rng.random((4, 2)))
+    assert np.isnan(no_positives["micro_auc"]) and np.isnan(no_positives["macro_auc"])
 
 
 def test_sigmoid_is_stable_for_large_logits():
@@ -125,16 +133,22 @@ def test_sigmoid_is_stable_for_large_logits():
 
 def test_empty_predictions_and_all_zero_labels_give_zero_f1():
     y = np.array([[1, 0], [0, 0]])
-    nothing = np.zeros_like(y, dtype=bool)
-    assert micro_f1(y, nothing) == 0.0 and macro_f1(y, nothing) == 0.0
-    assert micro_f1(np.zeros_like(y), nothing) == 0.0
+    nothing = np.zeros_like(y)
+    results = metrics(y, nothing)
+    assert results["micro_f1"] == 0.0 and results["macro_f1"] == 0.0
+    assert metrics(np.zeros_like(y), nothing)["micro_f1"] == 0.0
 
 
-def test_bucket_metrics_use_each_buckets_own_columns_and_thresholds():
-    y = np.array([[1, 0, 1], [0, 1, 1]])
-    probs = np.array([[0.9, 0.2, 0.6], [0.1, 0.7, 0.4]])
-    buckets = {"head": np.array([0, 2]), "medium": np.array([], dtype=int), "tail": np.array([1])}
-    results = bucket_metrics(y, probs, np.array([0.5, 0.5, 0.3]), buckets)
-    assert set(results) == {"head", "tail"}  # empty buckets are skipped
-    assert results["head"]["n_labels"] == 2 and results["head"]["micro_f1"] == 1.0
-    assert results["tail"]["micro_f1"] == 1.0
+def test_evaluate_run_reports_buckets_on_their_own_columns(tmp_path):
+    # Labels 0 and 2 are head codes, label 1 a tail code; no medium codes, so that bucket is skipped.
+    vocab = {"label_setting": "full", "codes": ["A", "B", "C"], "train_counts": [500, 3, 200]}
+    (tmp_path / "label_vocab.json").write_text(json.dumps(vocab), encoding="utf-8")
+    y = np.array([[1, 0, 1], [0, 1, 1], [1, 1, 0], [0, 0, 0]], dtype=np.uint8)
+    logits = np.where(y == 1, 3.0, -3.0)  # perfectly separable
+    for split in ("val", "test"):
+        np.save(tmp_path / f"{split}_labels.npy", y)
+        np.save(tmp_path / f"{split}_logits.npy", logits)
+    buckets = evaluate_run(tmp_path)["test_buckets"]
+    assert set(buckets) == {"head", "tail"}
+    assert buckets["head"]["n_labels"] == 2 and buckets["tail"]["n_labels"] == 1
+    assert buckets["head"]["micro_f1"] == 1.0 and buckets["tail"]["micro_f1"] == 1.0

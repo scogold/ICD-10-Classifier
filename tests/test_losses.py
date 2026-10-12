@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from icd10.losses import compute_pos_weight, make_loss_fn
 
-LOSS_CONFIG = {"type": "bce", "pos_weight_max": 50.0, "focal_gamma": 2.0, "focal_alpha": None}
+LOSS_CONFIG = {"type": "bce", "pos_weight_max": 50.0, "focal_gamma": 2.0}
 
 
 def _batch():
