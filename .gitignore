@@ -1,6 +1,8 @@
 # MIMIC-derived data and model outputs must never be committed
-data/
-outputs/
+/data/
+/outputs/
+# train.py's example prediction contains real note text, wherever it ends up
+example_prediction.txt
 *.parquet
 *.npy
 *.safetensors
