@@ -180,7 +180,7 @@ def format_example_prediction(
 
 
 def show_example_prediction(config: dict[str, Any], example: str, run_dir: Path) -> None:
-    """Print the example only for synthetic data: real MIMIC note text must never reach the terminal."""
+    """Print the example only for synthetic data"""
     mimic_dir = config["paths"]["mimic_dir"]
     if mimic_dir is not None and resolve_path(mimic_dir) == SYNTHETIC_MIMIC_DIR:
         print(example)

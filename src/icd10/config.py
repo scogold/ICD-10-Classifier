@@ -73,7 +73,7 @@ def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
-# Top-50 codes, BioClinical ModernBERT base. Start here.
+# Top-50 codes, BioClinical ModernBERT base.
 TOP50_BASE = deep_merge(BASE, {"run_name": "top50-base"})
 
 # Every code seen in train (several thousand labels), BioClinical ModernBERT base.
