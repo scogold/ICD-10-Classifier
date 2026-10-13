@@ -11,6 +11,8 @@ binary cross-entropy.
   literature. `full` uses every code seen in the training split, which is several thousand codes with a long tail.
 - **Training:** QLoRA by default. The encoder is loaded in 4-bit and frozen, and LoRA adapters plus the
   classification head are trained. This fits long notes (4096 tokens) on a single consumer GPU.
+  
+📊 **[Project presentation](https://docs.google.com/presentation/d/1968Msu17MojJsgJjZordTt2Z4Cgu9Yd0L1mWVu8n0lo/edit?usp=sharing)**: slides explaining the project and experiments in depth.
 
 ## Data handling
 
